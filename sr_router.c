@@ -87,18 +87,41 @@ void sr_send_icmp_error_packet(uint8_t type,
   /* Obtener el cabezal IP original */
   sr_ip_hdr_t *orig_ip_hdr = (sr_ip_hdr_t *)(ipPacket + sizeof(sr_ethernet_hdr_t));
   
-  /* Encontrar la interfaz desde la cual enviar la respuesta */
-  struct sr_if *iface = sr_get_interface_given_ip(sr, orig_ip_hdr->ip_dst);
-  if (!iface) {
+  /* Buscar la ruta hacia la IP origen del paquete original */
+  uint32_t src_ip = orig_ip_hdr->ip_src;
+  struct sr_rt *bestMatch = NULL;
+  uint32_t longestPrefix = 0;
+  struct sr_rt *route = sr->routing_table;
+  
+  while (route != NULL) {
+      if ((src_ip & route->mask.s_addr) == (route->dest.s_addr & route->mask.s_addr)) {
+          uint32_t prefixLen = __builtin_popcount(route->mask.s_addr);
+          if (prefixLen > longestPrefix) {
+              longestPrefix = prefixLen;
+              bestMatch = route;
+          }
+      }
+      route = route->next;
+  }
+  
+  /* Si no hay ruta hacia el origen, no enviar ICMP */
+  if (bestMatch == NULL) {
+      printf("No hay ruta hacia el origen (%u), no se envía ICMP\n", ntohl(src_ip));
+      free(packet);
+      return;
+  }
+  
+  /* Obtener la interfaz de salida */
+  struct sr_if *out_iface = sr_get_interface(sr, bestMatch->interface);
+  if (!out_iface) {
       free(packet);
       return;
   }
   
   /* Crear cabezal Ethernet */
   sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)packet;
-  sr_ethernet_hdr_t *orig_eth = (sr_ethernet_hdr_t *)ipPacket;
-  memcpy(eth_hdr->ether_dhost, orig_eth->ether_shost, ETHER_ADDR_LEN);
-  memcpy(eth_hdr->ether_shost, iface->addr, ETHER_ADDR_LEN);
+  memset(eth_hdr->ether_dhost, 0, ETHER_ADDR_LEN);  /* Se llenará con ARP si es necesario */
+  memcpy(eth_hdr->ether_shost, out_iface->addr, ETHER_ADDR_LEN);
   eth_hdr->ether_type = htons(ethertype_ip);
   
   /* Crear cabezal IP */
@@ -111,7 +134,7 @@ void sr_send_icmp_error_packet(uint8_t type,
   ip_hdr->ip_off = htons(IP_DF);
   ip_hdr->ip_ttl = 64;
   ip_hdr->ip_p = ip_protocol_icmp;
-  ip_hdr->ip_src = iface->ip;
+  ip_hdr->ip_src = out_iface->ip;
   ip_hdr->ip_dst = orig_ip_hdr->ip_src;
   ip_hdr->ip_sum = 0;
   ip_hdr->ip_sum = cksum(ip_hdr, ip_hdr->ip_hl * 4);
@@ -140,8 +163,31 @@ void sr_send_icmp_error_packet(uint8_t type,
       icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_hdr_t));
   }
   
-  /* Enviar el paquete ICMP */
-  sr_send_packet(sr, packet, len, iface->name);
+  /* Obtener el siguiente salto */
+  uint32_t nextHopIP = bestMatch->gw.s_addr;
+  if (nextHopIP == 0) {
+      nextHopIP = src_ip;
+  }
+
+  /* Buscar MAC en caché ARP */
+  struct sr_arpentry *arpEntry = sr_arpcache_lookup(&(sr->cache), nextHopIP);
+
+  if (arpEntry != NULL) {
+      printf("MAC encontrada en caché para ICMP\n");
+      memcpy(eth_hdr->ether_dhost, arpEntry->mac, ETHER_ADDR_LEN);
+      sr_send_packet(sr, packet, len, out_iface->name);
+      free(arpEntry);
+  } else {
+      printf("MAC no encontrada en caché para ICMP, solicitando ARP\n");
+      /* Encolar el paquete ICMP para enviar cuando se resuelva ARP */
+      struct sr_arpreq *req = sr_arpcache_queuereq(&(sr->cache), nextHopIP, packet, len, 
+                          out_iface->name);
+      
+      if (req != NULL) {
+          handle_arpreq(sr, req);
+      }
+  }
+  
   free(packet);
   
   printf("ICMP error packet enviado (type=%u, code=%u)\n", type, code);
@@ -266,15 +312,23 @@ void sr_handle_ip_packet(struct sr_instance *sr,
 
   printf("Reenviando hacia: %s\n", bestMatch->interface);
   
-  /* Verificar TTL */
-  if (ipHdr->ip_ttl <= 1) {
+  /* Verificar si TTL es 0 - descartar inmediatamente */
+  if (ipHdr->ip_ttl == 0) {
+      printf("TTL es 0, descartando paquete\n");
+      return;
+  }
+  
+  /* Decrementar TTL */
+  ipHdr->ip_ttl--;
+  
+  /* Si TTL llega a 0 después de decrementar, enviar ICMP time exceeded */
+  if (ipHdr->ip_ttl == 0) {
       printf("TTL expirado, enviando ICMP time exceeded\n");
       sr_send_icmp_error_packet(11, 0, sr, ipHdr->ip_src, packet);
       return;
   }
   
-  /* Decrementar TTL y recalcular checksum */
-  ipHdr->ip_ttl--;
+  /* Recalcular checksum IP después de modificar TTL */
   ipHdr->ip_sum = 0;
   ipHdr->ip_sum = cksum(ipHdr, ipHdr->ip_hl * 4);
 
