@@ -1,0 +1,29 @@
+
+mininet> vhost1 nohup sudo tcpdump -n -i vhost1-eth1 -w vhost1_ping_trace_V3.pcap &
+nohup: appending output to 'nohup.out'
+mininet> client ping -c 3 200.0.0.10
+PING 200.0.0.10 (200.0.0.10) 56(84) bytes of data.
+
+--- 200.0.0.10 ping statistics ---
+3 packets transmitted, 0 received, 100% packet loss, time 1998ms
+
+mininet> vhost1 killall tcpdump
+mininet>
+
+
+Con el router 2 caído
+
+===================================================================================
+
+Ahora con router1 corriendo el binario del ob1 (rs_solution).
+Y router2 y router4 caídos. 
+
+mininet> vhost1 nohup sudo tcpdump -n -i vhost1-eth2 -w vhost1_ping_trace_V4.pcap &
+mininet> client ping -c 3 200.0.0.10
+
+mininet> vhost1 nohup sudo tcpdump -n -i vhost1-eth1 -w vhost1_ping_trace_V5.pcap &
+mininet> client ping -c 3 200.0.0.10
+
+mininet> vhost1 nohup sudo tcpdump -n -i vhost1-eth1 -w vhost1_ping_trace_V6.pcap &
+mininet> client ping -c 3 255.0.0.10
+
