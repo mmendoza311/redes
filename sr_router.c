@@ -74,13 +74,18 @@ void sr_send_icmp_error_packet(uint8_t type,
   unsigned int len;
   
   /* Determinar el tamaño de la estructura ICMP según el tipo */
-  if (type == 3) {
+  if (type == 3 || type == 11) {
+      /* Type 3 (Destination Unreachable) y Type 11 (Time Exceeded) incluyen datos del paquete original */
       icmp_len = sizeof(sr_icmp_t3_hdr_t);
+      printf("DEBUG: Type %u ICMP, icmp_len=%u, sizeof(sr_icmp_t3_hdr_t)=%u\n", type, icmp_len, (unsigned)sizeof(sr_icmp_t3_hdr_t));
   } else {
+      /* Otros tipos ICMP */
       icmp_len = sizeof(sr_icmp_hdr_t);
+      printf("DEBUG: Other ICMP type %u, icmp_len=%u, sizeof(sr_icmp_hdr_t)=%u\n", type, icmp_len, (unsigned)sizeof(sr_icmp_hdr_t));
   }
   
   len = sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + icmp_len;
+  printf("DEBUG: Packet total len=%u (eth=%u, ip=%u, icmp=%u)\n", len, (unsigned)sizeof(sr_ethernet_hdr_t), (unsigned)sizeof(sr_ip_hdr_t), icmp_len);
   uint8_t *packet = malloc(len);
   memset(packet, 0, len);
   
@@ -130,6 +135,7 @@ void sr_send_icmp_error_packet(uint8_t type,
   ip_hdr->ip_hl = 5;
   ip_hdr->ip_tos = 0;
   ip_hdr->ip_len = htons(len - sizeof(sr_ethernet_hdr_t));
+  printf("DEBUG: IP len field=%u (network byte order)\n", ntohs(ip_hdr->ip_len));
   ip_hdr->ip_id = htons(0);
   ip_hdr->ip_off = htons(IP_DF);
   ip_hdr->ip_ttl = 64;
@@ -140,8 +146,8 @@ void sr_send_icmp_error_packet(uint8_t type,
   ip_hdr->ip_sum = cksum(ip_hdr, ip_hdr->ip_hl * 4);
   
   /* Crear cabezal ICMP según el tipo */
-  if (type == 3) {
-      /* Para tipo 3 (Destination Unreachable) usar sr_icmp_t3_hdr_t */
+  if (type == 3 || type == 11) {
+      /* Para tipo 3 (Destination Unreachable) y tipo 11 (Time Exceeded) usar sr_icmp_t3_hdr_t */
       sr_icmp_t3_hdr_t *icmp_hdr = (sr_icmp_t3_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
       icmp_hdr->icmp_type = type;
       icmp_hdr->icmp_code = code;
@@ -154,7 +160,7 @@ void sr_send_icmp_error_packet(uint8_t type,
       
       icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
   } else {
-      /* Para otros tipos (ej: 11 Time Exceeded) usar sr_icmp_hdr_t */
+      /* Para otros tipos usar sr_icmp_hdr_t */
       sr_icmp_hdr_t *icmp_hdr = (sr_icmp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t));
       icmp_hdr->icmp_type = type;
       icmp_hdr->icmp_code = code;
@@ -177,20 +183,24 @@ void sr_send_icmp_error_packet(uint8_t type,
       memcpy(eth_hdr->ether_dhost, arpEntry->mac, ETHER_ADDR_LEN);
       sr_send_packet(sr, packet, len, out_iface->name);
       free(arpEntry);
+      printf("ICMP error packet enviado (type=%u, code=%u)\n", type, code);
   } else {
-      printf("MAC no encontrada en caché para ICMP, solicitando ARP\n");
+      printf("MAC no encontrada en caché para ICMP, haciendo ARP request para enviar ICMP\n");
+      /* Hacer una copia del paquete para la cola ARP */
+      uint8_t *packet_copy = malloc(len);
+      memcpy(packet_copy, packet, len);
+      
       /* Encolar el paquete ICMP para enviar cuando se resuelva ARP */
-      struct sr_arpreq *req = sr_arpcache_queuereq(&(sr->cache), nextHopIP, packet, len, 
+      struct sr_arpreq *req = sr_arpcache_queuereq(&(sr->cache), nextHopIP, packet_copy, len, 
                           out_iface->name);
       
       if (req != NULL) {
           handle_arpreq(sr, req);
       }
+      free(packet_copy);
   }
   
   free(packet);
-  
-  printf("ICMP error packet enviado (type=%u, code=%u)\n", type, code);
 } /* -- sr_send_icmp_error_packet -- */
 
 /* Envía un paquete ICMP Echo Reply (tipo 0) en respuesta a un Echo Request */
