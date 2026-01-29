@@ -1,0 +1,62 @@
+Perfecto. Ahora voy a crear un documento resumen del trabajo realizado:
+
+Resumen de Implementación
+He implementado todas las 7 funciones requeridas para el protocolo RIPv2 en sr_rip.c:
+
+Funciones Implementadas:
+1. sr_handle_rip_packet - Procesa paquetes RIP recibidos
+
+Valida paquetes RIP según RFC 2453
+Diferencia entre REQUEST y RESPONSE
+Para REQUEST: envía respuesta
+Para RESPONSE: actualiza tabla de rutas
+Implementa detección de cambios y triggered updates
+2. sr_rip_update_route - Actualiza tabla de enrutamiento con nuevas rutas
+
+Implementa algoritmo de vector de distancias (Bellman-Ford)
+Maneja métricas infinitas (>= 16) para rutas inaccesibles
+Compara métricas y elige rutas óptimas
+Soporte para garbage collection
+Retorna 1 si tabla cambió, 0 si no cambió, -1 si error
+3. sr_rip_send_response - Envía respuestas RIP periódicas
+
+Construye paquetes RIP completos con encabezados Ethernet, IP y UDP
+Implementa Split Horizon con Poisoned Reverse
+Limita a 25 entradas por paquete (según RFC)
+Normaliza métricas al rango RIP (1..16)
+Usa dirección multicast 224.0.0.9 y puerto 520
+4. sr_rip_send_requests - Envía solicitudes RIP iniciales
+
+Se ejecuta como thread separado
+Espera 3 segundos para inicialización
+Solicita tabla de rutas completa en cada interfaz
+Usa entrada especial (AFI=0, métrica=16) para solicitud full-table
+5. sr_rip_periodic_advertisement - Thread de anuncios periódicos
+
+Inicializa rutas directamente conectadas
+Espera RIP_ADVERT_INTERVAL_SEC (10 segundos) antes de comenzar
+Envía respuestas periódicas en cada interfaz
+Implementa bucle infinito de anuncios
+6. sr_rip_timeout_manager - Thread que detecta rutas expiradas
+
+Bucle infinito con chequeos cada 1 segundo
+Marca rutas como inválidas después de RIP_TIMEOUT_SEC (60 segundos)
+Inicia proceso de garbage collection
+Usa mutex para acceso concurrente
+7. sr_rip_garbage_collection_manager - Thread de limpieza de rutas
+
+Bucle infinito con chequeos cada 1 segundo
+Elimina rutas inválidas después de RIP_GARBAGE_COLLECTION_SEC (40 segundos)
+Usa mutex para acceso concurrente
+Imprime tabla cuando hay cambios
+Características Principales:
+✅ Cumplimiento RFC 2453: Implementación completa basada en RFC 2453
+✅ Vector de Distancias: Algoritmo Bellman-Ford para cálculo de rutas óptimas
+✅ Split Horizon con Poisoned Reverse: Previene loops de enrutamiento
+✅ Timeouts y Garbage Collection: Manejo correcto de rutas expiradas
+✅ Multi-Threading: 4 threads para manejo asincrónico
+✅ Seguridad Concurrente: Mutex para proteger tabla de rutas
+✅ Validación de Paquetes: Verificación completa según especificación
+✅ Compilación Limpia: Sin errores ni warnings
+
+El código está completamente compilado y listo para usar. El binario se encuentra en sr.

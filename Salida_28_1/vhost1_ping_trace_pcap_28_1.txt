@@ -1,0 +1,22 @@
+Todos los routers levantados corriendo el binario del ob2 (rs).
+
+mininet> vhost1 nohup sudo tcpdump -n -i vhost1-eth2 -w vhost1_ping_trace_V1.pcap &
+mininet> client ping -c 3 200.0.0.10
+mininet> vhost1 killall tcpdump
+
+mininet> vhost1 nohup sudo tcpdump -n -i vhost1-eth1 -w vhost1_ping_trace_V2.pcap &
+mininet> client ping -c 3 200.0.0.10
+mininet> vhost1 killall tcpdump
+
+mininet> vhost1 nohup sudo tcpdump -n -i vhost1-eth1 -w vhost1_ping_trace_V3.pcap &
+mininet> client ping -c 3 255.0.0.10
+mininet> vhost1 killall tcpdump
+
+mininet> vhost1 nohup sudo tcpdump -n -i vhost1-eth1 -w vhost1_ping_trace_V4.pcap &
+mininet> client traceroute -n 100.0.0.50
+mininet> client traceroute -n 10.0.2.1
+mininet> client traceroute -n 200.0.0.10
+mininet> client traceroute -n 150.150.0.2
+mininet> client traceroute -n 200.0.0.8
+mininet> client traceroute -n 100.100.0.2
+mininet> vhost1 killall tcpdump

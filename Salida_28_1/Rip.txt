@@ -1,0 +1,25 @@
+vhost1 nohup sudo tcpdump -n -i vhost1-eth2 -w Rip1.pcap &
+
+vhost2 nohup sudo tcpdump -n -i vhost2-eth3 -w Rip2.pcap &
+
+vhost5 nohup sudo tcpdump -n -i vhost5-eth1 -w Rip3.pcap &
+
+vhost1 killall tcpdump
+
+vhost2 killall tcpdump
+
+vhost5 killall tcpdump
+
+
+vhost1 nohup sudo tcpdump -n -i vhost1-eth2 -w Rip4.pcap &
+link vhost1 vhost2 down
+link vhost1 vhost3 down
+link vhost1 vhost2 up
+link vhost1 vhost3 up
+vhost1 killall tcpdump
+
+Solo router1 levantado
+vhost1 nohup sudo tcpdump -n -i vhost1-eth2 -w Rip5.pcap &
+….. levanto los otros 4 routers
+…..
+vhost1 killall tcpdump
