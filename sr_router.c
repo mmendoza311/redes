@@ -21,6 +21,7 @@
 #include "sr_protocol.h"
 #include "sr_arpcache.h"
 #include "sr_utils.h"
+#include "sr_rip.h"
 
 /* Forward declaration */
 void sr_arp_reply_send_pending_packets(struct sr_instance *sr,
@@ -34,6 +35,7 @@ void handle_arpreq(struct sr_instance *sr, struct sr_arpreq *req);
 void sr_send_icmp_echo_reply(struct sr_instance *sr,
                              uint8_t *packet,
                              unsigned int len);
+
 
 /*---------------------------------------------------------------------
  * Method: sr_init(void)
@@ -49,6 +51,9 @@ void sr_init(struct sr_instance* sr)
 
     /* Inicializa la caché y el hilo de limpieza de la caché */
     sr_arpcache_init(&(sr->cache));
+
+    /* Inicializa el subsistema RIP */
+    sr_rip_init(sr);
 
     /* Inicializa los atributos del hilo */
     pthread_attr_init(&(sr->attr));
@@ -474,7 +479,7 @@ void sr_handle_arp_packet(struct sr_instance *sr,
 }
 
 
-/* 
+/*
 * ***** A partir de aquí no debería tener que modificar nada ****
 */
 
@@ -529,7 +534,7 @@ void sr_handlepacket(struct sr_instance* sr,
   assert(packet);
   assert(interface);
 
-  printf("*** -> Received packet of length %d on interface %s\n", len, interface);
+  printf("*** -> Received packet of length %d \n",len);
 
   /* Obtengo direcciones MAC origen y destino */
   sr_ethernet_hdr_t *eHdr = (sr_ethernet_hdr_t *) packet;
@@ -539,20 +544,12 @@ void sr_handlepacket(struct sr_instance* sr,
   memcpy(srcAddr, eHdr->ether_shost, sizeof(uint8_t) * ETHER_ADDR_LEN);
   uint16_t pktType = ntohs(eHdr->ether_type);
 
-  printf("*** -> EtherType: 0x%04x\n", pktType);
-
   if (is_packet_valid(packet, len)) {
     if (pktType == ethertype_arp) {
-      printf("*** -> Processing ARP packet\n");
       sr_handle_arp_packet(sr, packet, len, srcAddr, destAddr, interface, eHdr);
     } else if (pktType == ethertype_ip) {
-      printf("*** -> Processing IP packet\n");
       sr_handle_ip_packet(sr, packet, len, srcAddr, destAddr, interface, eHdr);
     }
-  } else {
-    printf("*** -> Packet validation failed\n");
   }
 
-  free(destAddr);
-  free(srcAddr);
 }/* end sr_ForwardPacket */
