@@ -312,11 +312,19 @@ void sr_rip_send_response(struct sr_instance* sr, struct sr_if* interface, uint3
                 rip_entry->mask = rt_iter->mask.s_addr;
                 rip_entry->next_hop = 0;
 
-                if (rt_iter->learned_from == interface->ip && rt_iter->gw.s_addr != 0) {
+                /* Split Horizon with Poisoned Reverse:
+                   Si la ruta fue aprendida por RIP y viene por la misma interfaz,
+                   enviarla pero marcarla como no alcanzable (métrica INFINITY) */
+                if (!rt_iter->valid) {
+                    /* Ruta inválida o expirada: marcar como no alcanzable */
                     rip_entry->metric = htonl(INFINITY);
-                } else if (!rt_iter->valid) {
+                } else if (rt_iter->learned_from != htonl(0) && 
+                           strcmp(rt_iter->interface, interface->name) == 0) {
+                    /* Poisoned Reverse: ruta aprendida por RIP por esta interfaz
+                       se envía con métrica INFINITY para prevenir bucles */
                     rip_entry->metric = htonl(INFINITY);
                 } else {
+                    /* Ruta válida que puede enviarse normalmente */
                     uint8_t metric = rt_iter->metric;
                     if (metric > INFINITY) metric = INFINITY;
                     if (metric < 1) metric = 1;
