@@ -279,6 +279,21 @@ void sr_handle_ip_packet(struct sr_instance *sr,
   sr_ip_hdr_t *ipHdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
   uint32_t ipDst = ipHdr->ip_dst;
 
+  /* Verificar si es un paquete RIP dirigido al multicast 224.0.0.9 */
+  if (ipDst == htonl(RIP_IP) && ipHdr->ip_p == ip_protocol_udp) {
+      printf("Paquete RIP multicast recibido en interfaz %s\n", interface);
+      sr_udp_hdr_t *udp_hdr = (sr_udp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + ipHdr->ip_hl * 4);
+      uint16_t dst_port = ntohs(udp_hdr->dst_port);
+      
+      if (dst_port == RIP_PORT) {
+          printf("Procesando paquete RIP\n");
+          unsigned int rip_off = sizeof(sr_ethernet_hdr_t) + ipHdr->ip_hl * 4 + sizeof(sr_udp_hdr_t);
+          unsigned int rip_len = len - rip_off;
+          sr_handle_rip_packet(sr, packet, len, sizeof(sr_ethernet_hdr_t), rip_off, rip_len, interface);
+          return;
+      }
+  }
+
   /* Verificar si el paquete es para una de mis interfaces */
   struct sr_if *iface = sr_get_interface_given_ip(sr, ipDst);
   if (iface != NULL) {
@@ -295,8 +310,25 @@ void sr_handle_ip_packet(struct sr_instance *sr,
           } else {
               printf("ICMP type %u recibido (no es echo request)\n", icmp_hdr->icmp_type);
           }
+      } else if (ipHdr->ip_p == ip_protocol_udp) {
+          /* Procesar paquetes UDP - incluyendo RIP */
+          sr_udp_hdr_t *udp_hdr = (sr_udp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t) + ipHdr->ip_hl * 4);
+          uint16_t dst_port = ntohs(udp_hdr->dst_port);
+          
+          printf("Paquete UDP recibido, puerto destino: %u\n", dst_port);
+          
+          /* Verificar si es un paquete RIP (puerto 520) */
+          if (dst_port == RIP_PORT) {
+              printf("Paquete RIP recibido\n");
+              unsigned int rip_off = sizeof(sr_ethernet_hdr_t) + ipHdr->ip_hl * 4 + sizeof(sr_udp_hdr_t);
+              unsigned int rip_len = len - rip_off;
+              sr_handle_rip_packet(sr, packet, len, sizeof(sr_ethernet_hdr_t), rip_off, rip_len, (char *)iface->name);
+          } else {
+              printf("Paquete UDP en puerto desconocido: %u\n", dst_port);
+              sr_send_icmp_error_packet(3, 3, sr, ipHdr->ip_src, packet);
+          }
       } else {
-          printf("Paquete no ICMP dirigido a mí\n");
+          printf("Paquete no ICMP/UDP dirigido a mí (protocolo %u)\n", ipHdr->ip_p);
           sr_send_icmp_error_packet(3, 3, sr, ipHdr->ip_src, packet);
       }
       return;

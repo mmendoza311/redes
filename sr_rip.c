@@ -106,6 +106,9 @@ int sr_rip_update_route(struct sr_instance* sr,
     time_t now = time(NULL);
     uint8_t incoming_metric = ntohl(rte->metric);
 
+    Debug("RIP: Processing entry - Dest: %s, Mask: %s, Metric: %u, Gateway: %s, Interface: %s",
+          inet_ntoa(dest_addr), inet_ntoa(mask_addr), incoming_metric, inet_ntoa(*(struct in_addr*)&src_ip), in_ifname);
+
     if (incoming_metric >= INFINITY) {
         struct sr_rt* existing = sr->routing_table;
         while (existing) {
@@ -184,7 +187,8 @@ int sr_rip_update_route(struct sr_instance* sr,
                     now,
                     1,
                     0);
-    Debug("RIP: New route added");
+    Debug("RIP: New route added - Dest: %s, Mask: %s, Metric: %u, Gateway: %s, Interface: %s",
+          inet_ntoa(dest_addr), inet_ntoa(mask_addr), new_metric, inet_ntoa(*(struct in_addr*)&src_ip), in_ifname);
     return 1;
 }
 
@@ -198,23 +202,31 @@ void sr_handle_rip_packet(struct sr_instance* sr,
 {
     if (!sr || !packet || !in_ifname) return;
 
+    pthread_mutex_lock(&rip_metadata_lock);
+
     sr_rip_packet_t* rip_packet = (struct sr_rip_packet_t*)(packet + rip_off);
     sr_ip_hdr_t* ip_hdr = (sr_ip_hdr_t*)(packet + ip_off);
 
     if (!sr_rip_validate_packet(rip_packet, rip_len)) {
         Debug("RIP: Invalid RIP packet received");
+        pthread_mutex_unlock(&rip_metadata_lock);
         return;
     }
 
     struct sr_if* iface = sr_get_interface(sr, in_ifname);
-    if (!iface) return;
+    if (!iface) {
+        pthread_mutex_unlock(&rip_metadata_lock);
+        return;
+    }
 
     uint32_t src_ip = ip_hdr->ip_src;
     int table_changed = 0;
 
     if (rip_packet->command == RIP_COMMAND_REQUEST) {
         Debug("RIP: Request received on interface %s", in_ifname);
+        pthread_mutex_unlock(&rip_metadata_lock);
         sr_rip_send_response(sr, iface, src_ip);
+        return;
     } else if (rip_packet->command == RIP_COMMAND_RESPONSE) {
         Debug("RIP: Response received from %s", inet_ntoa(*(struct in_addr*)&src_ip));
         
@@ -230,15 +242,17 @@ void sr_handle_rip_packet(struct sr_instance* sr,
         }
     } else {
         Debug("RIP: Invalid RIP command: %u", rip_packet->command);
+        pthread_mutex_unlock(&rip_metadata_lock);
         return;
     }
 
     if (table_changed) {
+    /* if (0) { */ /* DISABLED: Triggered Updates */
         Debug("RIP: Routing table changed, printing updated table:");
-        pthread_mutex_lock(&rip_metadata_lock);
         print_routing_table(sr);
-        pthread_mutex_unlock(&rip_metadata_lock);
     }
+
+    pthread_mutex_unlock(&rip_metadata_lock);
 }
 
 void sr_rip_send_response(struct sr_instance* sr, struct sr_if* interface, uint32_t ipDst) {
@@ -320,6 +334,7 @@ void sr_rip_send_response(struct sr_instance* sr, struct sr_if* interface, uint3
                     rip_entry->metric = htonl(INFINITY);
                 } else if (rt_iter->learned_from != htonl(0) && 
                            strcmp(rt_iter->interface, interface->name) == 0) {
+                /* } else if (0) { */ /* DISABLED: Split Horizon */
                     /* Poisoned Reverse: ruta aprendida por RIP por esta interfaz
                        se envía con métrica INFINITY para prevenir bucles */
                     rip_entry->metric = htonl(INFINITY);
@@ -504,6 +519,7 @@ void* sr_rip_timeout_manager(void* arg) {
         }
 
         if (table_changed) {
+        /* if (0) { */ /* DISABLED: Triggered Updates */
             Debug("RIP: Routing table changed due to timeout, printing updated table:");
             print_routing_table(sr);
         }
@@ -539,6 +555,7 @@ void* sr_rip_garbage_collection_manager(void* arg) {
         }
 
         if (table_changed) {
+        /* if (0) { */ /* DISABLED: Triggered Updates */
             Debug("RIP: Routing table changed due to garbage collection, printing updated table:");
             print_routing_table(sr);
         }
